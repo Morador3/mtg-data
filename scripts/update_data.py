@@ -74,7 +74,9 @@ def fetch_bulk():
             sys.exit(f"ERROR: Scryfall no publica el tipo de bulk '{t}'")
         b = by_type[t]
         raw = TMP / f"{t}.json"
-        print(f"Descargando {t} ({b['size'] / 1e6:.0f} MB, actualizado {b['updated_at']})...")
+        size = b.get("size") or b.get("compressed_size") or b.get("content_length")
+        size_txt = f"{int(size) / 1e6:.0f} MB" if size else "tamaño desconocido"
+        print(f"Descargando {t} ({size_txt}, actualizado {b.get('updated_at')})...")
         download(b["download_uri"], raw)
         raw_hash = sha256(raw)
         count = None
@@ -88,7 +90,7 @@ def fetch_bulk():
         raw.unlink()
         entries.append({
             "type": t,
-            "scryfall_updated_at": b["updated_at"],
+            "scryfall_updated_at": b.get("updated_at"),
             "download_uri": b["download_uri"],
             "file": gz.name,
             "object_count": count,
