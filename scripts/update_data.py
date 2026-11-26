@@ -65,6 +65,31 @@ def write_gz_json(obj, dst):
         json.dump(obj, f, ensure_ascii=False)
 
 
+def find_download_url(b):
+    """Localiza la URL de descarga del bulk aunque Scryfall cambie el nombre del campo."""
+    for key in ("download_uri", "download_url", "file_uri", "file_url"):
+        if isinstance(b.get(key), str) and b[key].startswith("http"):
+            return b[key]
+    candidates = [v for v in b.values()
+                  if isinstance(v, str) and v.startswith("https://")
+                  and (".json" in v or "data.scryfall.io" in v)]
+    if len(candidates) == 1:
+        return candidates[0]
+    sys.exit("ERROR: no se encuentra la URL de descarga en el índice de Scryfall. "
+             "Objeto recibido:\n" + json.dumps(b, ensure_ascii=False, indent=2))
+
+
+def ensure_plain_json(path):
+    """Si Scryfall sirve el archivo ya comprimido en gzip, lo descomprime en el sitio."""
+    with open(path, "rb") as f:
+        magic = f.read(2)
+    if magic == b"\x1f\x8b":
+        tmp = path.with_suffix(".tmp")
+        with gzip.open(path, "rb") as fi, open(tmp, "wb") as fo:
+            shutil.copyfileobj(fi, fo, length=1 << 20)
+        tmp.replace(path)
+
+
 def fetch_bulk():
     index = get_json("https://api.scryfall.com/bulk-data")
     by_type = {b["type"]: b for b in index["data"]}
@@ -77,7 +102,10 @@ def fetch_bulk():
         size = b.get("size") or b.get("compressed_size") or b.get("content_length")
         size_txt = f"{int(size) / 1e6:.0f} MB" if size else "tamaño desconocido"
         print(f"Descargando {t} ({size_txt}, actualizado {b.get('updated_at')})...")
-        download(b["download_uri"], raw)
+        print(f"  Campos del índice: {sorted(b.keys())}")
+        url = find_download_url(b)
+        download(url, raw)
+        ensure_plain_json(raw)
         raw_hash = sha256(raw)
         count = None
         if t != "all_cards":  # all_cards es demasiado grande para cargarlo solo para contar
@@ -91,7 +119,7 @@ def fetch_bulk():
         entries.append({
             "type": t,
             "scryfall_updated_at": b.get("updated_at"),
-            "download_uri": b["download_uri"],
+            "download_uri": url,
             "file": gz.name,
             "object_count": count,
             "sha256_uncompressed": raw_hash,
