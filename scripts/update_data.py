@@ -67,7 +67,7 @@ def write_gz_json(obj, dst):
 
 def find_download_url(b):
     """Localiza la URL de descarga del bulk aunque Scryfall cambie el nombre del campo."""
-    for key in ("download_uri", "download_url", "file_uri", "file_url"):
+    for key in ("jsonl_download_uri", "download_uri", "download_url", "file_uri", "file_url"):
         if isinstance(b.get(key), str) and b[key].startswith("http"):
             return b[key]
     candidates = [v for v in b.values()
@@ -90,6 +90,33 @@ def ensure_plain_json(path):
         tmp.replace(path)
 
 
+def count_objects(path):
+    """Detecta si el archivo es un array JSON o JSONL (un objeto por línea),
+    valida que cada objeto se puede leer y devuelve (formato, número de objetos)."""
+    with open(path, encoding="utf-8") as f:
+        first = ""
+        while not first:
+            ch = f.read(1)
+            if not ch:
+                sys.exit(f"ERROR: {path.name} está vacío")
+            first = ch.strip()
+    if first == "[":
+        with open(path, encoding="utf-8") as f:
+            return "json", len(json.load(f))
+    count = 0
+    with open(path, encoding="utf-8") as f:
+        for n, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                json.loads(line)
+            except json.JSONDecodeError as e:
+                sys.exit(f"ERROR: línea {n} de {path.name} no es JSON válido: {e}")
+            count += 1
+    return "jsonl", count
+
+
 def fetch_bulk():
     index = get_json("https://api.scryfall.com/bulk-data")
     by_type = {b["type"]: b for b in index["data"]}
@@ -107,13 +134,10 @@ def fetch_bulk():
         download(url, raw)
         ensure_plain_json(raw)
         raw_hash = sha256(raw)
-        count = None
-        if t != "all_cards":  # all_cards es demasiado grande para cargarlo solo para contar
-            with open(raw, encoding="utf-8") as f:
-                count = len(json.load(f))
+        fmt, count = count_objects(raw)
         if t == "default_cards" and count < MIN_DEFAULT_CARDS:
             sys.exit(f"ERROR: default_cards solo tiene {count} objetos; abortando")
-        gz = OUT / f"{t}.json.gz"
+        gz = OUT / (f"{t}.jsonl.gz" if fmt == "jsonl" else f"{t}.json.gz")
         gzip_file(raw, gz)
         raw.unlink()
         entries.append({
@@ -121,6 +145,7 @@ def fetch_bulk():
             "scryfall_updated_at": b.get("updated_at"),
             "download_uri": url,
             "file": gz.name,
+            "format": fmt,
             "object_count": count,
             "sha256_uncompressed": raw_hash,
             "size_bytes_gz": gz.stat().st_size,
