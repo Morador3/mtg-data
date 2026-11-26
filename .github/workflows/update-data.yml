@@ -4,11 +4,6 @@ on:
   schedule:
     - cron: "30 4 * * *"   # cada día a las 04:30 UTC
   workflow_dispatch:
-    inputs:
-      include_all_cards:
-        description: "Incluir all_cards (todos los idiomas, mucho más pesado)"
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -16,7 +11,7 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -26,7 +21,7 @@ jobs:
 
       - name: Descargar y preparar datos
         env:
-          INCLUDE_ALL_CARDS: ${{ inputs.include_all_cards && '1' || '0' }}
+          INCLUDE_ALL_CARDS: "1"   # todas las impresiones en todos los idiomas
         run: python scripts/update_data.py
 
       - name: Publicar release
